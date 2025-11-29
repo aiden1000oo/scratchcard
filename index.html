@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Box Scratch Lottery</title>
+<style>
+body {
+  margin:0;
+  height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  background: linear-gradient(120deg,#2c3e50,#34495e);
+  font-family:sans-serif;
+}
+#container {
+  position: relative;
+  width: 500px;
+  height: 500px;
+  border-radius: 15px;
+  overflow: hidden;
+  background: gold;
+  box-shadow:0 0 40px #000a inset,0 0 40px #fff3;
+}
+canvas {
+  position: absolute;
+  top:0; left:0;
+}
+#overlayShimmer {
+  position: absolute;
+  top:0; left:0;
+  width:100%; height:100%;
+  pointer-events:none;
+  background: linear-gradient(120deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0.2) 100%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite;
+  z-index:3;
+}
+@keyframes shimmer {0%{background-position:-500px 0;}100%{background-position:500px 0;}}
+#button {margin-top:20px;padding:10px 25px;font-size:18px;cursor:pointer;border-radius:8px;border:none;background:#e67e22;color:white;font-weight:bold;box-shadow:0 4px #c35400;}
+#button:active {box-shadow:0 2px #c35400; transform:translateY(2px);}
+#result {margin-top:10px;color:white;font-size:24px;text-align:center;}
+.prize-text {
+  position:absolute;
+  font-size:28px;
+  color:white;
+  pointer-events:none;
+  user-select:none;
+  font-weight:bold;
+  text-shadow:0 0 8px #000;
+  display:none;
+  justify-content:center;
+  align-items:center;
+}
+.no-prize { color:#aaa; text-shadow:0 0 4px #000; font-style:italic; }
+.jackpot-glow { position:absolute; border-radius:10px; pointer-events:none; box-shadow:0 0 20px 5px gold; animation: pulse 1s infinite alternate; }
+@keyframes pulse { 0% { box-shadow:0 0 10px 2px gold; } 100% { box-shadow:0 0 25px 10px gold; } }
+</style>
+</head>
+<body>
+
+<div>
+  <div id="container"></div>
+  <div id="overlayShimmer"></div>
+  <button id="button">New Card</button>
+  <div id="result"></div>
+  <audio id="jackpotSound" src="https://freesound.org/data/previews/499/499840_10066577-lq.mp3"></audio>
+</div>
+
+<script>
+const container = document.getElementById('container');
+const button = document.getElementById('button');
+const resultDiv = document.getElementById('result');
+const jackpotSound = document.getElementById('jackpotSound');
+const shimmer = document.getElementById('overlayShimmer');
+
+let overlay, mask, ctxOverlay, ctxMask;
+let particles=[], confetti=[], coins=[];
+let scratchableBoxes=[], prizes=[], prizeDivs=[], jackpotGlows=[];
+let isDrawing=false;
+const radius=20;
+
+// prize pool with numbers/symbols
+const prizePool = [
+  {text:'1️⃣', weight:2},
+  {text:'2️⃣', weight:2},
+  {text:'3️⃣', weight:2},
+  {text:'4️⃣', weight:2},
+  {text:'5️⃣', weight:1},
+  {text:'6️⃣', weight:1},
+  {text:'🥳 JACKPOT!', weight:0.3},
+  {text:'❌ No Prize', weight:4}
+];
+
+function weightedRandom(pool){
+  const sum=pool.reduce((a,b)=>a+b.weight,0);
+  let r=Math.random()*sum;
+  for(let p of pool){if(r<p.weight) return p.text; r-=p.weight;}
+}
+
+// CREATE CANVASES
+function createCanvases(){
+  container.innerHTML=''; container.appendChild(shimmer);
+  overlay=document.createElement('canvas'); mask=document.createElement('canvas');
+  overlay.width=mask.width=container.offsetWidth;
+  overlay.height=mask.height=container.offsetHeight;
+  overlay.style.zIndex=2; mask.style.zIndex=1;
+  container.appendChild(mask); container.appendChild(overlay);
+  ctxOverlay=overlay.getContext('2d'); ctxMask=mask.getContext('2d');
+}
+
+// GENERATE GRID BOXES
+function generateBoxes(rows=3, cols=3){
+  scratchableBoxes=[]; prizes=[];
+  const boxW=overlay.width/cols; const boxH=overlay.height/rows;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      scratchableBoxes.push({x:c*boxW, y:r*boxH, w:boxW-5, h:boxH-5});
+      prizes.push(weightedRandom(prizePool));
+    }
+  }
+}
+
+// DRAW MASK
+function drawMask(){
+  ctxMask.clearRect(0,0,mask.width,mask.height);
+  ctxMask.fillStyle='black'; ctxMask.fillRect(0,0,mask.width,mask.height);
+  ctxMask.fillStyle='white';
+  scratchableBoxes.forEach(z=>ctxMask.fillRect(z.x,z.y,z.w,z.h));
+}
+
+// DRAW OVERLAY
+function drawOverlay(){
+  const gradient=ctxOverlay.createLinearGradient(0,0,overlay.width,overlay.height);
+  gradient.addColorStop(0,'#C0C0C0'); gradient.addColorStop(0.5,'#DADADA'); gradient.addColorStop(1,'#B0B0B0');
+  ctxOverlay.globalCompositeOperation='source-over';
+  ctxOverlay.fillStyle=gradient; ctxOverlay.fillRect(0,0,overlay.width,overlay.height);
+}
+
+// DRAW PRIZES
+function drawPrizes(){
+  prizeDivs=[]; jackpotGlows=[];
+  scratchableBoxes.forEach((z,i)=>{
+    const div=document.createElement('div');
+    div.classList.add('prize-text');
+    if(prizes[i]==='❌ No Prize') div.classList.add('no-prize');
+    div.style.left=z.x+'px'; div.style.top=z.y+'px';
+    div.style.width=z.w+'px'; div.style.height=z.h+'px';
+    div.style.display='none'; div.style.justifyContent='center'; div.style.alignItems='center';
+    div.textContent=prizes[i]; container.appendChild(div); prizeDivs.push(div);
+
+    if(prizes[i]==='🥳 JACKPOT!'){
+      const glow=document.createElement('div'); glow.classList.add('jackpot-glow');
+      glow.style.left=z.x+'px'; glow.style.top=z.y+'px';
+      glow.style.width=z.w+'px'; glow.style.height=z.h+'px';
+      container.appendChild(glow); jackpotGlows.push(glow);
+    }
+  });
+}
+
+// PARTICLES
+function addParticles(x,y){for(let i=0;i<5;i++){particles.push({x:x,y:y,vx:(Math.random()-0.5)*4,vy:(Math.random()-1.5)*4,life:30+Math.random()*20,color:`hsl(${Math.random()*360},80%,60%)`});}}
+function updateParticles(){particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life--;ctxOverlay.fillStyle=p.color;ctxOverlay.globalAlpha=Math.max(p.life/50,0);ctxOverlay.beginPath();ctxOverlay.arc(p.x,p.y,3,0,Math.PI*2);ctxOverlay.fill();ctxOverlay.globalAlpha=1;});particles=particles.filter(p=>p.life>0);}
+
+// CONFETTI
+function addConfetti(){for(let i=0;i<30;i++){confetti.push({x:Math.random()*overlay.width,y:0,vx:(Math.random()-0.5)*4,vy:Math.random()*3+2,life:100+Math.random()*50,color:`hsl(${Math.random()*360},100%,60%)`,size:2+Math.random()*4});}}
+function updateConfetti(){confetti.forEach(c=>{c.x+=c.vx;c.y+=c.vy;c.life--;ctxOverlay.fillStyle=c.color;ctxOverlay.beginPath();ctxOverlay.arc(c.x,c.y,c.size,0,Math.PI*2);ctxOverlay.fill();}); confetti=confetti.filter(c=>c.life>0);}
+
+// COINS
+function addCoins(){for(let i=0;i<15;i++){coins.push({x:Math.random()*overlay.width,y:0,vy:Math.random()*4+3,size:5+Math.random()*5,life:100,color:'gold'});}}
+function updateCoins(){coins.forEach(c=>{c.y+=c.vy;c.life--;ctxOverlay.fillStyle=c.color;ctxOverlay.beginPath();ctxOverlay.arc(c.x,c.y,c.size,0,Math.PI*2);ctxOverlay.fill();}); coins=coins.filter(c=>c.life>0);}
+
+// SCRATCH
+function scratchHandler(e){
+  if(!isDrawing) return;
+  const rect=overlay.getBoundingClientRect(); let x,y;
+  if(e.touches){x=e.touches[0].clientX-rect.left;y=e.touches[0].clientY-rect.top;}
+  else{x=e.offsetX;y=e.offsetY;}
+  const data=ctxMask.getImageData(x,y,1,1).data;
+  if(data[0]===255){ctxOverlay.globalCompositeOperation='destination-out';ctxOverlay.beginPath();ctxOverlay.arc(x,y,radius,0,Math.PI*2);ctxOverlay.fill();addParticles(x,y);}
+}
+
+// CHECK COMPLETION & MATCHES
+let jackpotTriggered=false;
+function checkCompletion(){
+  const allCleared=scratchableBoxes.every((z,i)=>{const data=ctxOverlay.getImageData(z.x,z.y,z.w,z.h).data; let cleared=0; for(let j=3;j<data.length;j+=4) if(data[j]===0) cleared++; return cleared/(z.w*z.h)*100>50;});
+  if(allCleared && overlay.hidden===false){
+    prizeDivs.forEach(div=>div.style.display='flex'); jackpotGlows.forEach(glow=>glow.style.display='none');
+    
+    // check matching numbers for win
+    const counts={};
+    prizes.forEach(p=>{if(p!=='❌ No Prize') counts[p]=(counts[p]||0)+1;});
+    for(let key in counts){if(counts[key]>=3){resultDiv.textContent=`🎉 Matched 3+ ${key}! You win! 🎉`; addConfetti(); addCoins(); if(key==='🥳 JACKPOT!'){jackpotSound.play();}}}
+    
+    overlay.hidden=true;
+  }
+}
+
+// NEW CARD
+function newCard(){
+  resultDiv.textContent=''; createCanvases();
+  scratchableBoxes=[]; prizes=[]; prizeDivs=[]; jackpotGlows=[];
+  particles=[]; confetti=[]; coins=[]; jackpotTriggered=false;
+  generateBoxes(3,3); drawMask(); drawOverlay(); drawPrizes(); overlay.hidden=false;
+}
+
+// EVENTS
+overlay?.addEventListener('mousedown',()=>isDrawing=true);
+overlay?.addEventListener('mouseup',()=>isDrawing=false);
+overlay?.addEventListener('mouseleave',()=>isDrawing=false);
+overlay?.addEventListener('mousemove',scratchHandler);
+overlay?.addEventListener('touchmove',scratchHandler);
+
+setInterval(()=>{updateParticles(); updateConfetti(); updateCoins(); checkCompletion();},33);
+button.addEventListener('click',newCard);
+newCard();
+</script>
+</body>
+</html>
